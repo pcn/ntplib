@@ -37,164 +37,36 @@ class NTPException(Exception):
     pass
 
 
-class NTP:
-    """Helper class defining constants."""
+class NTPControlAssociation(object):
 
-    _SYSTEM_EPOCH = datetime.date(*time.gmtime(0)[0:3])
-    """system epoch"""
-    _NTP_EPOCH = datetime.date(1900, 1, 1)
-    """NTP epoch"""
-    NTP_DELTA = (_SYSTEM_EPOCH - _NTP_EPOCH).days * 24 * 3600
-    """delta between system and NTP time"""
+    def __init__(self):
+        pass
 
-    REF_ID_TABLE = {
-            'DNC': "DNC routing protocol",
-            'NIST': "NIST public modem",
-            'TSP': "TSP time protocol",
-            'DTS': "Digital Time Service",
-            'ATOM': "Atomic clock (calibrated)",
-            'VLF': "VLF radio (OMEGA, etc)",
-            'callsign': "Generic radio",
-            'LORC': "LORAN-C radionavidation",
-            'GOES': "GOES UHF environment satellite",
-            'GPS': "GPS UHF satellite positioning",
-    }
-    """reference identifier table"""
+    def __str__(self):
+        return str({ k:v for (k, v) in self.__dict__.items() if not k.startswith('_')})
 
-    STRATUM_TABLE = {
-        0: "unspecified",
-        1: "primary reference",
-    }
-    """stratum table"""
-
-    MODE_TABLE = {
-        0: "unspecified",
-        1: "symmetric active",
-        2: "symmetric passive",
-        3: "client",
-        4: "server",
-        5: "broadcast",
-        6: "reserved for NTP control messages",
-        7: "reserved for private use",
-    }
-    """mode table"""
-
-    LEAP_TABLE = {
-        0: "no warning",
-        1: "last minute has 61 seconds",
-        2: "last minute has 59 seconds",
-        3: "alarm condition (clock not synchronized)",
-    }
-    """leap indicator table"""
-
-
-class NTPPacket:
-    """NTP packet class.
-
-    This represents an NTP packet.
-    """
-
-    _PACKET_FORMAT = "!B B B b 11I"
-    """packet format to pack/unpack"""
-
-    def __init__(self, version=2, mode=3, tx_timestamp=0):
-        """Constructor.
-
-        Parameters:
-        version      -- NTP version
-        mode         -- packet mode (client, server)
-        tx_timestamp -- packet transmit timestamp
+    def decode(self, data):
         """
-        self.leap = 0
-        """leap second indicator"""
-        self.version = version
-        """version"""
-        self.mode = mode
-        """mode"""
-        self.stratum = 0
-        """stratum"""
-        self.poll = 0
-        """poll interval"""
-        self.precision = 0
-        """precision"""
-        self.root_delay = 0
-        """root delay"""
-        self.root_dispersion = 0
-        """root dispersion"""
-        self.ref_id = 0
-        """reference clock identifier"""
-        self.ref_timestamp = 0
-        """reference timestamp"""
-        self.orig_timestamp = 0
-        """originate timestamp"""
-        self.recv_timestamp = 0
-        """receive timestamp"""
-        self.tx_timestamp = tx_timestamp
-        """tansmit timestamp"""
+        Provided 1 uchar of data, unpack this associations data from that uchar
 
-    def to_data(self):
-        """Convert this NTPPacket to a buffer that can be sent over a socket.
-
-        Returns:
-        buffer representing this packet
-
-        Raises:
-        NTPException -- in case of invalid field
+        test with  e.g. data set to:
+        In [161]: struct.pack("!B B", 0b00010100,0b00011010)
+        Out[161]: '\x14\x1a'
         """
-        try:
-            packed = struct.pack(NTPPacket._PACKET_FORMAT,
-                (self.leap << 6 | self.version << 3 | self.mode),
-                self.stratum,
-                self.poll,
-                self.precision,
-                _to_int(self.root_delay) << 16 | _to_frac(self.root_delay, 16),
-                _to_int(self.root_dispersion) << 16 |
-                _to_frac(self.root_dispersion, 16),
-                self.ref_id,
-                _to_int(self.ref_timestamp),
-                _to_frac(self.ref_timestamp),
-                _to_int(self.orig_timestamp),
-                _to_frac(self.orig_timestamp),
-                _to_int(self.recv_timestamp),
-                _to_frac(self.recv_timestamp),
-                _to_int(self.tx_timestamp),
-                _to_frac(self.tx_timestamp))
-        except struct.error:
-            raise NTPException("Invalid NTP packet fields.")
-        return packed
+        unpacked = struct.unpack("!B B", data)
+        self.peer_config = unpacked[0] >> 7 & 0x1
+        self.peer_authenable = unpacked[0] >> 6 & 0x1
+        self.peer_authentic = unpacked[0] >> 5 & 0x1
+        self.peer_reach = unpacked[0] >> 4 & 0x1
+        self.reserved = unpacked[0] >> 3 & 0x1
+        self.peer_selection = unpacked[0] & 0x7
 
-    def from_data(self, data):
-        """Populate this instance from a NTP packet payload received from
-        the network.
-
-        Parameters:
-        data -- buffer payload
-
-        Raises:
-        NTPException -- in case of invalid packet format
-        """
-        try:
-            unpacked = struct.unpack(NTPPacket._PACKET_FORMAT,
-                    data[0:struct.calcsize(NTPPacket._PACKET_FORMAT)])
-        except struct.error:
-            raise NTPException("Invalid NTP packet.")
-
-        self.leap = unpacked[0] >> 6 & 0x3
-        self.version = unpacked[0] >> 3 & 0x7
-        self.mode = unpacked[0] & 0x7
-        self.stratum = unpacked[1]
-        self.poll = unpacked[2]
-        self.precision = unpacked[3]
-        self.root_delay = float(unpacked[4])/2**16
-        self.root_dispersion = float(unpacked[5])/2**16
-        self.ref_id = unpacked[6]
-        self.ref_timestamp = _to_time(unpacked[7], unpacked[8])
-        self.orig_timestamp = _to_time(unpacked[9], unpacked[10])
-        self.recv_timestamp = _to_time(unpacked[11], unpacked[12])
-        self.tx_timestamp = _to_time(unpacked[13], unpacked[14])
+        self.peer_event_counter = unpacked[1] >> 4 & 0xf
+        self.peer_event_code = unpacked[1] & 0xf
 
 
-class NTPControlPacket:
+
+class NTPControlPacket(object):
     """NTP control packet class.
 
     This represents an NTP control packet.
@@ -245,15 +117,13 @@ class NTPControlPacket:
             packed = struct.pack(
                 NTPControlPacket._PACKET_FORMAT,
                 (self.leap << 6 | self.version << 3 | self.mode),
-                (self.response_bit << 7 | self.error_bit << 6 | self.more_bit << 5| NTPControlPacket._OPCODES[self.opcode]),
+                (self.response_bit << 7 | self.error_bit << 6 |
+                 self.more_bit << 5 | NTPControlPacket._OPCODES[self.opcode]),
                 self.sequence,
                 self.status,
                 self.association_id,
                 self.offset,
                 self.count)
-
-
-
         except struct.error:
             raise NTPException("Invalid NTP packet fields.")
         return packed
@@ -269,37 +139,50 @@ class NTPControlPacket:
         NTPException -- in case of invalid packet format
         """
         try:
+            # Length of the
+            header_len = struct.calcsize(NTPControlPacket._PACKET_FORMAT)
             unpacked = struct.unpack(NTPControlPacket._PACKET_FORMAT,
-                    data[0:struct.calcsize(NTPControlPacket._PACKET_FORMAT)])
+                data[0:header_len])
         except struct.error:
             raise NTPException("Invalid NTP packet.")
 
         # header status
         self.leap = unpacked[0] >> 6 & 0x1
         self.version = unpacked[0] >> 3 & 0x7
-        self.mode = unpacked[0] & 0x7 # end first uchar
+        self.mode = unpacked[0] & 0x7  # end first uchar
 
         self.response_bit = unpacked[1] >> 7 & 0x1
         self.error_bit = unpacked[1] >> 6 & 0x1
-        self.more_bit = unpacked[1] >>5 & 0x1
-        self.opcode = unpacked[1] & 0x1f # end second uchar
+        self.more_bit = unpacked[1] >> 5 & 0x1
+        self.opcode = unpacked[1] & 0x1f  # end second uchar
 
         self.sequence = unpacked[2]
 
         # Another status (what do the docs call this?)
-        self.leap = unpacked[3] >> 14 & 0x1 # only use the true/false part, don't got into more detail
-        self.clocksource = unpacked[3] >> 8 & 0x1f # 6 bit mask
+        self.leap = unpacked[3] >> 14 & 0x1  # only use the true/false part, don't got into more detail
+        self.clocksource = unpacked[3] >> 8 & 0x1f  # 6 bit mask
         self.system_event_counter = unpacked[3] >> 4 & 0xf
-        self.system_event_code = unpacked[3] & 0xf # End first ushort
-
+        self.system_event_code = unpacked[3] & 0xf  # End first ushort
 
         self.association_id = unpacked[4]
         self.offset = unpacked[5]
         self.count = unpacked[6]
 
+        self.association_peer_status = list()
+        print header_len
+        print len(data)
+        # XXX wrong step -doing  this in chars instead of bytes or whatever
+        # also need to capture The item (4 bytes) as well as the status at each step.
+        # I don't think I'm really getting either right now.
+        for offset in range(header_len, len(data), 4):
+            assoc = data[offset:offset+2]
+            nca = NTPControlAssociation()
+            nca.decode(assoc)
+            self.association_peer_status.append(nca)
 
 
-class NTPControlClient:
+
+class NTPControlClient(object):
     """NTP client session."""
 
     def __init__(self):
@@ -350,143 +233,3 @@ class NTPControlClient:
         ncp = NTPControlPacket()
         ncp.from_data(response_packet)
         return ncp
-
-
-def _to_int(timestamp):
-    """Return the integral part of a timestamp.
-
-    Parameters:
-    timestamp -- NTP timestamp
-
-    Retuns:
-    integral part
-    """
-    return int(timestamp)
-
-def _to_frac(timestamp, n=32):
-    """Return the fractional part of a timestamp.
-
-    Parameters:
-    timestamp -- NTP timestamp
-    n         -- number of bits of the fractional part
-
-    Retuns:
-    fractional part
-    """
-    return int(abs(timestamp - _to_int(timestamp)) * 2**n)
-
-def _to_time(integ, frac, n=32):
-    """Return a timestamp from an integral and fractional part.
-
-    Parameters:
-    integ -- integral part
-    frac  -- fractional part
-    n     -- number of bits of the fractional part
-
-    Retuns:
-    timestamp
-    """
-    return integ + float(frac)/2**n
-
-def ntp_to_system_time(timestamp):
-    """Convert a NTP time to system time.
-
-    Parameters:
-    timestamp -- timestamp in NTP time
-
-    Returns:
-    corresponding system time
-    """
-    return timestamp - NTP.NTP_DELTA
-
-def system_to_ntp_time(timestamp):
-    """Convert a system time to a NTP time.
-
-    Parameters:
-    timestamp -- timestamp in system time
-
-    Returns:
-    corresponding NTP time
-    """
-    return timestamp + NTP.NTP_DELTA
-
-def leap_to_text(leap):
-    """Convert a leap indicator to text.
-
-    Parameters:
-    leap -- leap indicator value
-
-    Returns:
-    corresponding message
-
-    Raises:
-    NTPException -- in case of invalid leap indicator
-    """
-    if leap in NTP.LEAP_TABLE:
-        return NTP.LEAP_TABLE[leap]
-    else:
-        raise NTPException("Invalid leap indicator.")
-
-def mode_to_text(mode):
-    """Convert a NTP mode value to text.
-
-    Parameters:
-    mode -- NTP mode
-
-    Returns:
-    corresponding message
-
-    Raises:
-    NTPException -- in case of invalid mode
-    """
-    if mode in NTP.MODE_TABLE:
-        return NTP.MODE_TABLE[mode]
-    else:
-        raise NTPException("Invalid mode.")
-
-def stratum_to_text(stratum):
-    """Convert a stratum value to text.
-
-    Parameters:
-    stratum -- NTP stratum
-
-    Returns:
-    corresponding message
-
-    Raises:
-    NTPException -- in case of invalid stratum
-    """
-    if stratum in NTP.STRATUM_TABLE:
-        return NTP.STRATUM_TABLE[stratum]
-    elif 1 < stratum < 255:
-        return "secondary reference (NTP)"
-    else:
-        raise NTPException("Invalid stratum.")
-
-def ref_id_to_text(ref_id, stratum=2):
-    """Convert a reference clock identifier to text according to its stratum.
-
-    Parameters:
-    ref_id  -- reference clock indentifier
-    stratum -- NTP stratum
-
-    Returns:
-    corresponding message
-
-    Raises:
-    NTPException -- in case of invalid stratum
-    """
-    fields = (ref_id >> 24 & 0xff, ref_id >> 16 & 0xff,
-                ref_id >> 8 & 0xff, ref_id & 0xff)
-
-    # return the result as a string or dot-formatted IP address
-    if 0 <= stratum <= 1 :
-        text = '%c%c%c%c' % fields
-        if text in NTP.REF_ID_TABLE:
-            return NTP.REF_ID_TABLE[text]
-        else:
-            return text
-    elif 2 <= stratum < 255:
-        return '%d.%d.%d.%d' % fields
-    else:
-        raise NTPException("Invalid stratum.")
