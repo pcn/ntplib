@@ -80,11 +80,11 @@ class NTPControlPacket(object):
     """packet format to pack/unpack"""
 
     _OPCODES = {
-        "readstat" : 1
+        "readstat" : 1,
         "readvar"  : 2
     }
 
-    def __init__(self, version=2, opcode="readstat", sequence=1):
+    def __init__(self, version=2, op="readstat", association_id=0, sequence=1):
         """Constructor.
 
         Parameters:
@@ -101,10 +101,10 @@ class NTPControlPacket(object):
         self.response_bit = 0 # request
         self.error_bit = 0
         self.more_bit = 0
-        self.opcode = opcode
+        self.opcode = NTPControlPacket._OPCODES[op]
         self.sequence = sequence
         self.status = 0
-        self.association_id = 0
+        self.association_id = association_id
         self.offset = 0
         self.count = 0
 
@@ -123,7 +123,7 @@ class NTPControlPacket(object):
                 NTPControlPacket._PACKET_FORMAT,
                 (self.leap << 6 | self.version << 3 | self.mode),
                 (self.response_bit << 7 | self.error_bit << 6 |
-                 self.more_bit << 5 | NTPControlPacket._OPCODES[self.opcode]),
+                 self.more_bit << 5 | self.opcode),
                 self.sequence,
                 self.status,
                 self.association_id,
@@ -144,10 +144,9 @@ class NTPControlPacket(object):
         NTPException -- in case of invalid packet format
         """
         try:
-            # Length of the
-            self.header_len = struct.calcsize(NTPControlPacket._PACKET_FORMAT)
+            header_len = struct.calcsize(NTPControlPacket._PACKET_FORMAT)
             unpacked = struct.unpack(NTPControlPacket._PACKET_FORMAT,
-                data[0:self.header_len])
+                data[0:header_len])
         except struct.error:
             raise NTPException("Invalid NTP packet.")
 
@@ -164,7 +163,8 @@ class NTPControlPacket(object):
         self.sequence = unpacked[2]
 
         # Another status (what do the docs call this?)
-        self.leap = unpacked[3] >> 14 & 0x1  # only use the true/false part, don't got into more detail
+        # only use the true/false bit somehow? don't get into more detail
+        self.leap = unpacked[3] >> 14 & 0x1
         self.clocksource = unpacked[3] >> 8 & 0x1f  # 6 bit mask
         self.system_event_counter = unpacked[3] >> 4 & 0xf
         self.system_event_code = unpacked[3] & 0xf  # End first ushort
@@ -173,15 +173,27 @@ class NTPControlPacket(object):
         self.offset = unpacked[5]
         self.count = unpacked[6]
 
-        self.association_peer_status = list()
-        # XXX wrong step -doing  this in chars instead of bytes or whatever
-        # also need to capture The item (4 bytes) as well as the status at each step.
-        # I don't think I'm really getting either right now.
-        for offset in range(self.header_len, len(data), 4):
+        opcodes_by_number = { v:k for k,v in NTPControlPacket._OPCODES.items() }
+        if opcodes_by_number[self.opcode] == "readstat":
+            self.decode_readstat(header_len,  data)
+        elif opcodes_by_number[self.opcode] == "readvar":
+            self.decode_readvar(header_len,  data)
+
+    def decode_readstat(self, header_len, data):
+        self.data = list()
+        for offset in range(header_len, len(data), 4):
             assoc = data[offset:offset+4]
             nca = NTPControlAssociation()
             nca.decode(assoc)
-            self.association_peer_status.append(nca)
+            self.data.append(nca)
+
+    def decode_readvar(self, header_len, data):
+        self.data = list()
+        print "readvar data:"
+        # TODO:  encode data here
+        return "\n".join(data[header_len:].split(","))
+
+
 
 
 
@@ -192,7 +204,7 @@ class NTPControlClient(object):
         """Constructor."""
         pass
 
-    def request(self, host, version=2, port='ntp', timeout=5):
+    def request(self, host, version=2, port='ntp', op="readvar", association_id=0, timeout=5):
         """Query a NTP server.
 
         Parameters:
@@ -215,15 +227,18 @@ class NTPControlClient(object):
             s.settimeout(timeout)
 
             # create the request packet - mode 3 is client
-            query_packet = NTPControlPacket()
+            query_packet = NTPControlPacket(
+                op=op, association_id=association_id)
 
             # send the request
             s.sendto(query_packet.to_data(), sockaddr)
 
             # wait for the response - check the source address
             src_addr = None,
+            # Will there ever be enough control info to need to
+            # concat multiple recvfroms()?
             while src_addr[0] != sockaddr[0]:
-                response_packet, src_addr = s.recvfrom(256)
+                response_packet, src_addr = s.recvfrom(512)
 
             # build the destination timestamp
             dest_timestamp = system_to_ntp_time(time.time())
@@ -232,13 +247,19 @@ class NTPControlClient(object):
         finally:
             s.close()
 
-        # construct corresponding statistics
         ncp = NTPControlPacket()
         ncp.from_data(response_packet)
         return ncp
 
 
-def testme():
+def testme1():
     ncc = NTPControlClient()
-    ncp = ncc.request('127.0.0.1')
-    return ncp
+    ncp = ncc.request('127.0.0.1', op="readstat")
+    return ncp.data
+
+def testme2():
+    ncc = NTPControlClient()
+    association_data = testme1()
+    ncp = ncc.request('127.0.0.1', op="readvar",
+                      association_id=association_data[0].association_id)
+    return ncp.data
