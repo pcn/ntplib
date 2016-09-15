@@ -47,22 +47,26 @@ class NTPControlAssociation(object):
 
     def decode(self, data):
         """
-        Provided 1 uchar of data, unpack this associations data from that uchar
+        Provided a 2 uchar of data, unpack the first uchar of associationID,
+        and the second uchar of association data from that uchar
 
         test with  e.g. data set to:
         In [161]: struct.pack("!B B", 0b00010100,0b00011010)
         Out[161]: '\x14\x1a'
         """
-        unpacked = struct.unpack("!B B", data)
-        self.peer_config = unpacked[0] >> 7 & 0x1
-        self.peer_authenable = unpacked[0] >> 6 & 0x1
-        self.peer_authentic = unpacked[0] >> 5 & 0x1
-        self.peer_reach = unpacked[0] >> 4 & 0x1
-        self.reserved = unpacked[0] >> 3 & 0x1
-        self.peer_selection = unpacked[0] & 0x7
+        unpacked = struct.unpack("!H B B", data)
 
-        self.peer_event_counter = unpacked[1] >> 4 & 0xf
-        self.peer_event_code = unpacked[1] & 0xf
+        self.association_id = unpacked[0]
+
+        self.peer_config = unpacked[1] >> 7 & 0x1
+        self.peer_authenable = unpacked[1] >> 6 & 0x1
+        self.peer_authentic = unpacked[1] >> 5 & 0x1
+        self.peer_reach = unpacked[1] >> 4 & 0x1
+        self.reserved = unpacked[1] >> 3 & 0x1
+        self.peer_selection = unpacked[1] & 0x7
+
+        self.peer_event_counter = unpacked[2] >> 4 & 0xf
+        self.peer_event_code = unpacked[2] & 0xf
 
 
 
@@ -77,6 +81,7 @@ class NTPControlPacket(object):
 
     _OPCODES = {
         "readstat" : 1
+        "readvar"  : 2
     }
 
     def __init__(self, version=2, opcode="readstat", sequence=1):
@@ -140,9 +145,9 @@ class NTPControlPacket(object):
         """
         try:
             # Length of the
-            header_len = struct.calcsize(NTPControlPacket._PACKET_FORMAT)
+            self.header_len = struct.calcsize(NTPControlPacket._PACKET_FORMAT)
             unpacked = struct.unpack(NTPControlPacket._PACKET_FORMAT,
-                data[0:header_len])
+                data[0:self.header_len])
         except struct.error:
             raise NTPException("Invalid NTP packet.")
 
@@ -169,13 +174,11 @@ class NTPControlPacket(object):
         self.count = unpacked[6]
 
         self.association_peer_status = list()
-        print header_len
-        print len(data)
         # XXX wrong step -doing  this in chars instead of bytes or whatever
         # also need to capture The item (4 bytes) as well as the status at each step.
         # I don't think I'm really getting either right now.
-        for offset in range(header_len, len(data), 4):
-            assoc = data[offset:offset+2]
+        for offset in range(self.header_len, len(data), 4):
+            assoc = data[offset:offset+4]
             nca = NTPControlAssociation()
             nca.decode(assoc)
             self.association_peer_status.append(nca)
@@ -233,3 +236,9 @@ class NTPControlClient(object):
         ncp = NTPControlPacket()
         ncp.from_data(response_packet)
         return ncp
+
+
+def testme():
+    ncc = NTPControlClient()
+    ncp = ncc.request('127.0.0.1')
+    return ncp
