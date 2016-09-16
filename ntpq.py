@@ -258,11 +258,17 @@ def testme1():
     ncp = ncc.request('127.0.0.1', op="readstat")
     return ncp.data
 
-def testme2():
+def composite_associnfo(host="127.0.0.1"):
+    """
+    returns a list of associations from the host,
+    this data is a mixture of the data that is gotten
+    from the commands 'ntpq -c pe' and 'ntpq -c as'
+
+    """
     ncc = NTPControlClient()
-    association_data = testme1()
+    ncp = ncc.request('127.0.0.1', op="readstat")
     data = list()
-    for assoc in association_data:
+    for assoc in ncp.data:
         readvar_data = ncc.request('127.0.0.1', op="readvar",
                                    association_id=assoc.association_id)
         for k, v in assoc.__dict__.items():
