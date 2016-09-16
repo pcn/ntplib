@@ -188,11 +188,12 @@ class NTPControlPacket(object):
             self.data.append(nca)
 
     def decode_readvar(self, header_len, data):
-        self.data = list()
-        print "readvar data:"
         # TODO:  encode data here
-        return "\n".join(data[header_len:].split(","))
-
+        buf = data[header_len:].split(",")
+        self.data = dict()
+        for d in buf:
+            key, val = d.replace("\r\n", "").lstrip().split("=")
+            self.data[key] = val
 
 
 
@@ -260,6 +261,12 @@ def testme1():
 def testme2():
     ncc = NTPControlClient()
     association_data = testme1()
-    ncp = ncc.request('127.0.0.1', op="readvar",
-                      association_id=association_data[0].association_id)
-    return ncp.data
+    data = list()
+    for assoc in association_data:
+        readvar_data = ncc.request('127.0.0.1', op="readvar",
+                                   association_id=assoc.association_id)
+        for k, v in assoc.__dict__.items():
+            if not k.startswith('_'):
+                readvar_data.data[k] = v
+        data.append(readvar_data)
+    return data
