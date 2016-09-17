@@ -185,9 +185,8 @@ class NTPControlPacket(object):
         self.data = list()
         for offset in range(header_len, len(data), 4):
             assoc = data[offset:offset+4]
-            nca = NTPControlAssociation()
-            nca.decode(assoc)
-            self.data.append(nca)
+            association_dict = decode_association(assoc)
+            self.data.append(association_dict)
 
     def decode_readvar(self, header_len, data):
         """From libntpq.h in the ntp distribution:
@@ -288,10 +287,9 @@ def composite_associnfo(host="127.0.0.1"):
     data = list()
     for assoc in ncp.data:
         readvar_data = ncc.request(
-            host, op="readvar", association_id=assoc.association_id)
-        for k, v in assoc.__dict__.items():
-            if not k.startswith('_'):
-                readvar_data.data[k] = v
+            host, op="readvar", association_id=assoc['association_id'])
+        for k, v in assoc.items():
+            readvar_data.data[k] = v
         data.append(readvar_data)
     return data
 
