@@ -42,7 +42,7 @@ class NTPException(Exception):
 class NTPControlAssociation(object):
 
     def __init__(self):
-        pass
+        raise ValueError, "Don't use me"
 
     def __str__(self):
         return str({ k:v for (k, v) in self.__dict__.items() if not k.startswith('_')})
@@ -265,7 +265,7 @@ class NTPControlClient(object):
                 response_packet, src_addr = s.recvfrom(512)
 
             # build the destination timestamp
-            dest_timestamp = system_to_ntp_time(time.time())
+            dest_timestamp = ntplib.system_to_ntp_time(time.time())
         except socket.timeout:
             raise NTPException("No response received from %s." % host)
         finally:
@@ -294,3 +294,28 @@ def composite_associnfo(host="127.0.0.1"):
                 readvar_data.data[k] = v
         data.append(readvar_data)
     return data
+
+def decode_association(data):
+    """
+    Provided a 2 uchar of data, unpack the first uchar of associationID,
+    and the second uchar of association data from that uchar
+
+    test with  e.g. data set to:
+    In [161]: struct.pack("!B B", 0b00010100,0b00011010)
+    Out[161]: '\x14\x1a'
+    """
+    unpacked = struct.unpack("!H B B", data)
+
+    return {
+        'association_id' : unpacked[0],
+
+        'peer_config' : unpacked[1] >> 7 & 0x1,
+        'peer_authenable' : unpacked[1] >> 6 & 0x1,
+        'peer_authentic' : unpacked[1] >> 5 & 0x1,
+        'peer_reach' : unpacked[1] >> 4 & 0x1,
+        'reserved' : unpacked[1] >> 3 & 0x1,
+        'peer_selection' : unpacked[1] & 0x7,
+
+        'peer_event_counter' : unpacked[2] >> 4 & 0xf,
+        'peer_event_code' : unpacked[2] & 0xf
+    }
