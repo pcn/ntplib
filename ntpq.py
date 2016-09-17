@@ -31,6 +31,8 @@ import socket
 import struct
 import time
 
+import ntplib
+
 
 class NTPException(Exception):
     """Exception raised by this module."""
@@ -188,14 +190,35 @@ class NTPControlPacket(object):
             self.data.append(nca)
 
     def decode_readvar(self, header_len, data):
+        """From libntpq.h in the ntp distribution:
+/* NTP Status codes */
+#define NTP_STATUS_INVALID      0
+#define NTP_STATUS_FALSETICKER  1
+#define NTP_STATUS_EXCESS       2
+#define NTP_STATUS_OUTLIER      3
+#define NTP_STATUS_CANDIDATE    4
+#define NTP_STATUS_SELECTED     5
+#define NTP_STATUS_SYSPEER      6
+#define NTP_STATUS_PPSPEER      7
+
+        """
+
+
         # TODO:  encode data here
         buf = data[header_len:].split(",")
         self.data = dict()
         for d in buf:
             key, val = d.replace("\r\n", "").lstrip().split("=")
-            self.data[key] = val
-
-
+            if key in ('rec', 'reftime'):
+                int_part, frac_part = map(
+                    lambda x: int(x, 16), val.split("."))
+                self.data[key] = ntplib.ntp_to_system_time(
+                    ntplib._to_time(int_part, frac_part))
+            else:
+                self.data[key] = val
+        # For the equivalent of the 'when' column, in ntpq -c pe
+        # I believe that the time.time() minus the 'rec' field will give that.
+        self.data['when'] = time.time() - self.data['rec']
 
 
 class NTPControlClient(object):
@@ -253,11 +276,6 @@ class NTPControlClient(object):
         return ncp
 
 
-def testme1():
-    ncc = NTPControlClient()
-    ncp = ncc.request('127.0.0.1', op="readstat")
-    return ncp.data
-
 def composite_associnfo(host="127.0.0.1"):
     """
     returns a list of associations from the host,
@@ -266,11 +284,11 @@ def composite_associnfo(host="127.0.0.1"):
 
     """
     ncc = NTPControlClient()
-    ncp = ncc.request('127.0.0.1', op="readstat")
+    ncp = ncc.request(host, op="readstat")
     data = list()
     for assoc in ncp.data:
-        readvar_data = ncc.request('127.0.0.1', op="readvar",
-                                   association_id=assoc.association_id)
+        readvar_data = ncc.request(
+            host, op="readvar", association_id=assoc.association_id)
         for k, v in assoc.__dict__.items():
             if not k.startswith('_'):
                 readvar_data.data[k] = v
