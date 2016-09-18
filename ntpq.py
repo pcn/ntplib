@@ -19,10 +19,11 @@
 # with this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place, Suite 330, Boston, MA 0.1.2-1307 USA
 ###############################################################################
-"""Python NTP library.
+"""Python NTP control client implementation
 
-Implementation of client-side NTP (RFC-1305), and useful NTP-related
-functions.
+This emulates the action fo the ntpq library, specifically two of the
+read commands, "associations" and "peers".
+
 """
 
 
@@ -50,12 +51,13 @@ class NTPException(Exception):
     pass
 
 
-def composite_associnfo(host="127.0.0.1"):
+def composite_assoc_and_peer(host="127.0.0.1"):
     """
-    returns a list of assoc)iations from the host,
-    this data is a mixture of the data that is gotten
-    from the commands 'ntpq -c pe' and 'ntpq -c as'
+    returns a list of associations from the host,
+    combined with the peer data.
 
+    This data is a mixture of the data that is gotten
+    from the commands 'ntpq -c pe' and 'ntpq -c as'
     """
     # ncc = NTPControlClient()
     # ncp = ncc.request(host, op="readstat")
@@ -69,6 +71,7 @@ def composite_associnfo(host="127.0.0.1"):
         data.append(readvar_data)
     return data
 
+
 def decode_association(data):
     """
     Provided a 2 uchar of data, unpack the first uchar of associationID,
@@ -77,26 +80,27 @@ def decode_association(data):
     test with  e.g. data set to:
     In [161]: struct.pack("!B B", 0b00010100,0b00011010)
     Out[161]: '\x14\x1a'
+
+    This is the data for a single association.
     """
     unpacked = struct.unpack("!H B B", data)
 
     return {
-        'association_id' : unpacked[0],
-
-        'peer_config' : unpacked[1] >> 7 & 0x1,
-        'peer_authenable' : unpacked[1] >> 6 & 0x1,
-        'peer_authentic' : unpacked[1] >> 5 & 0x1,
-        'peer_reach' : unpacked[1] >> 4 & 0x1,
-        'reserved' : unpacked[1] >> 3 & 0x1,
-        'peer_selection' : unpacked[1] & 0x7,
-
+        'association_id'     : unpacked[0],
+        'peer_config'        : unpacked[1] >> 7 & 0x1,
+        'peer_authenable'    : unpacked[1] >> 6 & 0x1,
+        'peer_authentic'     : unpacked[1] >> 5 & 0x1,
+        'peer_reach'         : unpacked[1] >> 4 & 0x1,
+        'reserved'           : unpacked[1] >> 3 & 0x1,
+        'peer_selection'     : unpacked[1] & 0x7,
         'peer_event_counter' : unpacked[2] >> 4 & 0xf,
-        'peer_event_code' : unpacked[2] & 0xf
+        'peer_event_code'    : unpacked[2] & 0xf
     }
 
 
-def control_packet_data(version=2, op='readstat', association_id=0, sequence=1):
-    """Convert this NTPControlPacket to a buffer that can be sent over a socket.
+def control_data_payload(version=2, op='readstat', association_id=0, sequence=1):
+    """Convert the requested arguments into a buffer that can be sent over a socket.
+    to an ntp server.
 
     Returns:
     buffer representing this packet
@@ -149,34 +153,32 @@ def ntp_control_request(host, version=2, port='ntp',  # pylint: disable=too-many
     family, sockaddr = addrinfo[0], addrinfo[4]
 
     # create the socket
-    s = socket.socket(family, socket.SOCK_DGRAM)
+    sock = socket.socket(family, socket.SOCK_DGRAM)
 
     try:
-        s.settimeout(timeout)
+        sock.settimeout(timeout)
 
-        # create the request packet - mode 3 is client
-        s.sendto(
-            control_packet_data(op=op, version=version,
-                                association_id=association_id),
+        # create a control request packet
+        sock.sendto(
+            control_data_payload(
+                op=op, version=version,
+                association_id=association_id),
             sockaddr)
 
         # wait for the response - check the source address
         src_addr = None,
-        # Will there ever be enough control info to need to
-        # concat multiple recvfroms()?
         while src_addr[0] != sockaddr[0]:
-            response_packet, src_addr = s.recvfrom(512)
+            response_packet, src_addr = sock.recvfrom(512)
 
         # build the destination timestamp
         # dest_timestamp = ntplib.system_to_ntp_time(time.time())
     except socket.timeout:
         raise NTPException("No response received from %s." % host)
     finally:
-        s.close()
+        sock.close()
 
     packet_dict = control_packet_from_data(response_packet)
     return packet_dict
-
 
 
 def control_packet_from_data(data):
@@ -240,8 +242,6 @@ def control_packet_from_data(data):
         "more_bit"             : unpacked[1] >> 5 & 0x1,
         "opcode"               : unpacked[1] & 0x1f,  # end second uchar
         "sequence"             : unpacked[2],
-        # Another status (what do the docs call this?)
-        # only use the true/false bit somehow? don't get into more detail
         "leap"                 : unpacked[3] >> 14 & 0x1,
         "clocksource"          : unpacked[3] >> 8 & 0x1f,  # 6 bit mask
         "system_event_counter" : unpacked[3] >> 4 & 0xf,
