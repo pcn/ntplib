@@ -2,13 +2,13 @@
 
 # pragma pylint: disable=bad-whitespace
 ###############################################################################
-# ntplib - Python NTP library.
-# Copyright (C) 2009 Charles-Francois Natali <neologix@free.fr>
+# ntpq.py - Python NTP control library.
+# Copyright (C) 2016 Peter C. Norton (@pcn on github)
 #
-# ntplib is free software; you can redistribute it and/or modify it under the
-# terms of the GNU Lesser General Public License as published by the Free
-# Software Foundation; either version 2 of the License, or (at your option) any
-# later version.
+# this addition to ntplib is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your option)
+# any later version.
 #
 # This program is distributed in the hope that it will be useful, but WITHOUT
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
@@ -58,6 +58,8 @@ def composite_assoc_and_peer(host="127.0.0.1"):
 
     This data is a mixture of the data that is gotten
     from the commands 'ntpq -c pe' and 'ntpq -c as'
+
+    This was my main goal in writing this.
     """
     # ncc = NTPControlClient()
     # ncp = ncc.request(host, op="readstat")
@@ -212,17 +214,31 @@ def control_packet_from_data(data):
         Decodes a redvar request.  Augments rdata dictionary with
         the textual data int he data packet.
         """
+        def to_time(integ, frac, n=32):
+            """Return a timestamp from an integral and fractional part.
+            Having this here eliminates using an function internal to
+            ntplib.
+
+            Parameters:
+            integ -- integral part
+            frac  -- fractional part
+            n     -- number of bits of the fractional part
+            Retuns:
+            float seconds since the epoch/ aka a timestmap
+            """
+            return integ + float(frac)/2**n
+
         buf = data[header_len:].split(",")
         for field in buf:
             key, val = field.replace("\r\n", "").lstrip().split("=")
             if key in ('rec', 'reftime'):
                 int_part, frac_part = [ int(x, 16) for x in val.split(".") ]
                 rdata[key] = ntplib.ntp_to_system_time(
-                    ntplib._to_time(int_part, frac_part))  # pylint: disable=protected-access
+                    to_time(int_part, frac_part))  # pylint: disable=protected-access
             else:
                 rdata[key] = val
         # For the equivalent of the 'when' column, in ntpq -c pe
-        # I believe that the time.time() minus the 'rec' field will give that.
+        # I believe that the time.time() minus the 'rec' matches that value.
         rdata['when'] = time.time() - rdata['rec']
         return rdata
 
