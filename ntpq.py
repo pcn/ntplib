@@ -40,7 +40,7 @@ NTP_CONTROL_OPCODES = {
     "readvar"  : 2
 }
 
-# packet format to pack/unpack
+# packet format to pack/unpack the control header
 CONTROL_PACKET_FORMAT = "!B B H H H H H"
 
 
@@ -66,8 +66,8 @@ def composite_assoc_and_peer(host="127.0.0.1"):
     for assoc in ncp_data['associations']:
         readvar_data = ntp_control_request(
             host, op="readvar", association_id=assoc['association_id'])
-        for k, v in assoc.items():
-            readvar_data[k] = v
+        for key, val in assoc.items():
+            readvar_data[key] = val
         data.append(readvar_data)
     return data
 
