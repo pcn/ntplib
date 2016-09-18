@@ -192,10 +192,41 @@ def control_packet_from_data(data):
     Raises:
     NTPException -- in case of invalid packet format
     """
+
+    def decode_readstat(header_len, data, rdata):
+        """
+        Decodes a readstat request.  Augments rdata with
+        association IDs from data
+        """
+        rdata['associations'] = list()
+        for offset in range(header_len, len(data), 4):
+            assoc = data[offset:offset+4]
+            association_dict = decode_association(assoc)
+            rdata['associations'].append(association_dict)
+        return rdata
+
+    def decode_readvar(header_len, data, rdata):
+        """
+        Decodes a redvar request.  Augments rdata dictionary with
+        the textual data int he data packet.
+        """
+        buf = data[header_len:].split(",")
+        for field in buf:
+            key, val = field.replace("\r\n", "").lstrip().split("=")
+            if key in ('rec', 'reftime'):
+                int_part, frac_part = [ int(x, 16) for x in val.split(".") ]
+                rdata[key] = ntplib.ntp_to_system_time(
+                    ntplib._to_time(int_part, frac_part))  # pylint: disable=protected-access
+            else:
+                rdata[key] = val
+        # For the equivalent of the 'when' column, in ntpq -c pe
+        # I believe that the time.time() minus the 'rec' field will give that.
+        rdata['when'] = time.time() - rdata['rec']
+        return rdata
+
     try:
         header_len = struct.calcsize(CONTROL_PACKET_FORMAT)
-        unpacked = struct.unpack(CONTROL_PACKET_FORMAT,
-            data[0:header_len])
+        unpacked = struct.unpack(CONTROL_PACKET_FORMAT, data[0:header_len])
     except struct.error:
         raise NTPException("Invalid NTP packet.")
 
@@ -225,35 +256,3 @@ def control_packet_from_data(data):
         return decode_readstat(header_len,  data, rdata)
     elif opcodes_by_number[rdata['opcode']] == "readvar":
         return decode_readvar(header_len,  data, rdata)
-
-def decode_readstat(header_len, data, rdata):
-    """
-    Decodes a readstat request.  Augments rdata with
-    association IDs from data
-    """
-    rdata['associations'] = list()
-    for offset in range(header_len, len(data), 4):
-        assoc = data[offset:offset+4]
-        association_dict = decode_association(assoc)
-        rdata['associations'].append(association_dict)
-    return rdata
-
-# not done yet
-def decode_readvar(header_len, data, rdata):
-    """
-    Decodes a redvar request.  Augments rdata dictionary with
-    the textual data int he data packet.
-    """
-    buf = data[header_len:].split(",")
-    for d in buf:
-        key, val = d.replace("\r\n", "").lstrip().split("=")
-        if key in ('rec', 'reftime'):
-            int_part, frac_part = [ int(x, 16) for x in val.split(".") ]
-            rdata[key] = ntplib.ntp_to_system_time(
-                ntplib._to_time(int_part, frac_part))  # pylint: disable=protected-access
-        else:
-            rdata[key] = val
-    # For the equivalent of the 'when' column, in ntpq -c pe
-    # I believe that the time.time() minus the 'rec' field will give that.
-    rdata['when'] = time.time() - rdata['rec']
-    return rdata
