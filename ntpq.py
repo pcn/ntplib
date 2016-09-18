@@ -26,8 +26,6 @@ read commands, "associations" and "peers".
 
 """
 
-
-import datetime
 import socket
 import struct
 import time
