@@ -146,7 +146,7 @@ def ntp_control_request(host, version=2, port='ntp',  # pylint: disable=too-many
     timeout -- timeout on socket operations
 
     Returns:
-    NTPStats object ??? XXX
+    dictionary with ntp control info.  Specific data will vary based on the request type.
     """
     # lookup server address
     addrinfo = socket.getaddrinfo(host, port)[0]
@@ -212,7 +212,7 @@ def control_packet_from_data(data):
         Decodes a redvar request.  Augments rdata dictionary with
         the textual data int he data packet.
         """
-        def to_time(integ, frac, n=32):
+        def to_time(integ, frac, n=32): # pylint: disable=invalid-name
             """Return a timestamp from an integral and fractional part.
             Having this here eliminates using an function internal to
             ntplib.
